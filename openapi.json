@@ -3,7 +3,7 @@
   "info": {
     "title": "stoaix Partner API",
     "version": "2026-05-19",
-    "description": "Machine-to-machine API for integrating external systems (CRM, PMS, etc.) with stoaix platform.\n\n## Authentication\nAll requests require an API key via `Authorization: Bearer sk_live_xxx` or `x-api-key` header.\n\nAPI keys are scoped — each key has specific permissions (e.g., `contacts:read`, `leads:write`). You can create and manage keys in **Settings > Partner API**.\n\n## Rate Limiting\nPlan-based RPM limits. Check `RateLimit-*` response headers:\n\n| Header | Description |\n|--------|-------------|\n| `RateLimit-Limit` | Max requests per minute |\n| `RateLimit-Remaining` | Remaining requests in current window |\n| `RateLimit-Reset` | Unix timestamp when limit resets |\n\n| Plan | RPM | Monthly Quota |\n|------|-----|---------------|\n| Essential | 30 | 1,000 |\n| Professional | 60 | 10,000 |\n| Business | 120 | 50,000 |\n| Custom | 300 | Unlimited |\n\n## Response Headers\nEvery response includes:\n\n| Header | Description |\n|--------|-------------|\n| `X-Api-Version` | Current API version (date-based, e.g. `2026-05-19`) |\n| `X-Request-Id` | Unique request identifier for debugging |\n| `X-API-Key-Expires` | ISO 8601 expiry date of the API key (if set) |\n| `RateLimit-Limit` | Max requests per minute |\n| `RateLimit-Remaining` | Remaining requests in current window |\n| `RateLimit-Reset` | Unix timestamp when limit resets |\n\n## Idempotency\nPOST endpoints accept `Idempotency-Key` header. Responses are cached for 24 hours. Replaying the same key returns the cached response without side effects.\n\n## Optimistic Concurrency (Version Locking)\nPATCH endpoints on contacts, leads, and appointments support optimistic locking via the `version` field. Include the current `version` value in your update request — if the record has been modified since you last read it, the API returns `409 Conflict`.\n\n```json\nPATCH /api/v1/contacts/uuid\n{ \"full_name\": \"New Name\", \"version\": 3 }\n\n// If version mismatch:\n// 409 { \"error\": { \"code\": \"conflict\", \"message\": \"Version conflict — record has been modified. Re-fetch and retry.\" } }\n```\n\n## Webhooks\nRegister webhook subscriptions in **Settings > Partner API > Webhooks** to receive real-time event notifications.\n\n### Event Types\n- `contact.created`, `contact.updated`, `contact.deleted`\n- `lead.created`, `lead.updated`, `lead.status_changed`\n- `appointment.created`, `appointment.updated`, `appointment.status_changed`\n\n### Delivery & Retry Policy\n- **Timeout:** 10 seconds per delivery\n- **Retries:** Up to 8 attempts with exponential backoff (1min, 5min, 30min, 2h, 6h, 12h, 24h)\n- **Dead letter:** After 8 failed attempts, the delivery is moved to `dead_letter` status and an alert is generated\n- **Auto-disable:** After 10 consecutive failures across deliveries, the subscription is automatically disabled\n- **Signature:** HMAC-SHA256 via `X-Stoaix-Signature` header (Stripe-style `t=timestamp,v1=signature` format)\n\n### Polling Fallback\nIf your system cannot receive webhooks, use `GET /api/v1/events` to poll for changes. Events are retained for 30 days.",
+    "description": "Machine-to-machine API for integrating external systems (CRM, PMS, etc.) with stoaix platform.\n\n## Authentication\nAll requests require an API key via `Authorization: Bearer sk_live_xxx` or `x-api-key` header.\n\nAPI keys are scoped — each key has specific permissions. You can create and manage keys in **Settings > Partner API**.\n\n### Available Scopes\n\n| Scope | Description |\n|-------|-------------|\n| `contacts:read` | Read contacts |\n| `contacts:write` | Create, update, delete contacts |\n| `leads:read` | Read leads |\n| `leads:write` | Create, update leads |\n| `appointments:read` | Read appointments |\n| `appointments:write` | Create, update appointments |\n| `conversations:read` | Read conversations |\n| `messages:read` | Read messages |\n| `knowledge:read` | Read knowledge items |\n| `knowledge:write` | Create, update, delete knowledge items |\n| `events:read` | Poll events |\n| `inbound:contacts` | Push contacts from external systems |\n| `inbound:appointments` | Push appointments from external systems |\n\n> **Note:** Inbound endpoints require dedicated `inbound:*` scopes, not `contacts:write` or `appointments:write`.\n\n## Rate Limiting\nPlan-based RPM limits. Check `RateLimit-*` response headers:\n\n| Header | Description |\n|--------|-------------|\n| `RateLimit-Limit` | Max requests per minute |\n| `RateLimit-Remaining` | Remaining requests in current window |\n| `RateLimit-Reset` | Unix timestamp when limit resets |\n\n| Plan | RPM | Monthly Quota |\n|------|-----|---------------|\n| Essential | 30 | 1,000 |\n| Professional | 60 | 10,000 |\n| Business | 120 | 50,000 |\n| Custom | 300 | Unlimited |\n\n## Response Headers\nEvery response includes:\n\n| Header | Description |\n|--------|-------------|\n| `X-Api-Version` | Current API version (date-based, e.g. `2026-05-19`) |\n| `X-Request-Id` | Unique request identifier for debugging |\n| `X-API-Key-Expires` | ISO 8601 expiry date of the API key (if set) |\n| `X-API-Key-Expires-In-Days` | Days until key expiry (if set) |\n| `RateLimit-Limit` | Max requests per minute |\n| `RateLimit-Remaining` | Remaining requests in current window |\n| `RateLimit-Reset` | Unix timestamp when limit resets |\n| `Cache-Control` | Always `no-store` |\n| `X-Content-Type-Options` | Always `nosniff` |\n\n## Common Error Responses\n\nAll endpoints may return these errors:\n\n| Status | Code | Description |\n|--------|------|-------------|\n| 400 | `invalid_json` | Request body is not valid JSON |\n| 401 | `missing_api_key` | No Authorization or x-api-key header provided |\n| 401 | `invalid_api_key` | Key not found, revoked, expired, or inactive |\n| 403 | `insufficient_scope` | API key lacks the required scope for this endpoint |\n| 403 | `ip_not_allowed` | Request IP not in the key's allowlist |\n| 403 | `org_inactive` | Organization is not active |\n| 403 | `feature_not_available` | Partner API not enabled on your plan |\n| 413 | `payload_too_large` | Request body exceeds 512KB (2MB for batch endpoints) |\n| 422 | `idempotency_mismatch` | Same Idempotency-Key reused with a different request body |\n| 429 | `rate_limited` | RPM limit exceeded |\n| 429 | `monthly_quota_exceeded` | Monthly API quota exhausted |\n\n## Idempotency\nPOST endpoints accept `Idempotency-Key` header. Responses are cached for 24 hours. Replaying the same key with the same body returns the cached response. Using the same key with a different body returns `422 idempotency_mismatch`.\n\n## Optimistic Concurrency (Version Locking)\nPATCH endpoints on contacts, leads, and appointments support optimistic locking via the `version` field. The `version` field is returned in GET responses — include it in your update request. If the record has been modified since you last read it, the API returns `409 Conflict`.\n\n```json\n// 1. Fetch current version\nGET /api/v1/contacts/uuid → { \"data\": { \"version\": 3, ... } }\n\n// 2. Update with version\nPATCH /api/v1/contacts/uuid\n{ \"full_name\": \"New Name\", \"version\": 3 }\n\n// If version mismatch:\n// 409 { \"error\": { \"code\": \"conflict\", \"message\": \"Version conflict — record has been modified. Re-fetch and retry.\" } }\n```\n\n## Pagination\nList endpoints use cursor-based pagination. Sort order varies by endpoint:\n\n| Endpoint | Cursor field | Sort order |\n|----------|-------------|------------|\n| Contacts, Leads, Knowledge | `created_at` | Newest first (descending) |\n| Conversations | `updated_at` | Newest first (descending) |\n| Appointments | `scheduled_at` | Earliest first (ascending) |\n| Messages | `created_at` | Oldest first (ascending) |\n\nUse `next_cursor` from the response as the `cursor` parameter for the next page.\n\n## Webhooks\nRegister webhook subscriptions in **Settings > Partner API > Webhooks** to receive real-time event notifications.\n\n### Event Types\n- `contact.created`, `contact.updated`, `contact.deleted`\n- `lead.created`, `lead.updated`, `lead.status_changed`\n- `appointment.created`, `appointment.updated`, `appointment.status_changed`\n\n### Delivery & Retry Policy\n- **Timeout:** 10 seconds per delivery\n- **Retries:** Up to 8 attempts with exponential backoff (immediate, 1min, 5min, 30min, 2h, 6h, 12h, 24h)\n- **Dead letter:** After 8 failed attempts, the delivery is moved to `dead_letter` status and an alert is generated\n- **HTTP 410:** If your endpoint returns `410 Gone`, the delivery is immediately dead-lettered (no further retries)\n- **Auto-disable:** After 10 consecutive failures across deliveries, the subscription is automatically disabled\n\n### Signature Verification\nEvery webhook includes an `X-Stoaix-Signature` header in Stripe-style format:\n```\nX-Stoaix-Signature: t=1716048000,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd\n```\n\nTo verify:\n1. Extract `t` (timestamp) and `v1` (signature) from the header\n2. Construct the signed payload: `${t}.${raw_request_body}`\n3. Compute HMAC-SHA256 with your webhook secret as the key\n4. Compare your computed hex digest with the `v1` value\n5. Optionally reject if `t` is more than 5 minutes old (replay protection)\n\n```javascript\nconst crypto = require('crypto');\n\nfunction verifyWebhook(rawBody, signatureHeader, secret) {\n  const parts = Object.fromEntries(\n    signatureHeader.split(',').map(p => p.split('='))\n  );\n  const expected = crypto\n    .createHmac('sha256', secret)\n    .update(parts.t + '.' + rawBody)\n    .digest('hex');\n  return crypto.timingSafeEqual(\n    Buffer.from(parts.v1),\n    Buffer.from(expected)\n  );\n}\n```\n\n### Polling Fallback\nIf your system cannot receive webhooks, use `GET /api/v1/events` to poll for changes. Events are retained for 30 days.\n\n## State Machine (Status Transitions)\nWhen `enforce_state_machine` is enabled for your organization, status updates are validated:\n\n### Lead Status Transitions\n```\nnew → in_progress, lost\nin_progress → nurturing, qualified, handed_off, lost\nnurturing → in_progress, qualified, lost\nqualified → handed_off, converted, lost\nhanded_off → qualified, converted, lost\nlost → new (reactivation)\nconverted → (terminal)\n```\n\n### Appointment Status Transitions\n```\nscheduled → confirmed, cancelled, rescheduled\nconfirmed → attended, no_show, cancelled, rescheduled\nrescheduled → confirmed, cancelled\nno_show → rescheduled\ncancelled → rescheduled\nattended → (terminal)\n```\n\nInvalid transitions return `400` with code `invalid_transition` and an `allowed` array listing valid target statuses.",
     "contact": { "email": "info@stoaix.com" }
   },
   "servers": [
@@ -16,17 +16,19 @@
         "summary": "List contacts",
         "operationId": "listContacts",
         "tags": ["Contacts"],
+        "description": "Returns contacts sorted by `created_at` descending (newest first). Requires scope: `contacts:read`.",
         "parameters": [
           { "name": "phone", "in": "query", "schema": { "type": "string" }, "description": "Filter by exact phone number" },
           { "name": "email", "in": "query", "schema": { "type": "string" }, "description": "Filter by exact email" },
           { "name": "status", "in": "query", "schema": { "type": "string" }, "description": "Filter by status" },
           { "name": "search", "in": "query", "schema": { "type": "string" }, "description": "Search by name, phone, email (max 100 chars)" },
-          { "name": "cursor", "in": "query", "schema": { "type": "string" }, "description": "Pagination cursor (created_at from previous response)" },
-          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 100 }, "description": "Number of results per page" }
+          { "name": "cursor", "in": "query", "schema": { "type": "string" }, "description": "Pagination cursor (`next_cursor` from previous response, a `created_at` timestamp)" },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 100 } }
         ],
         "responses": {
-          "200": { "description": "Contact list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactList" } } } },
+          "200": { "description": "Contact list", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Contact" } }, "pagination": { "$ref": "#/components/schemas/Pagination" } } } } } },
           "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
       },
@@ -34,14 +36,15 @@
         "summary": "Create contact",
         "operationId": "createContact",
         "tags": ["Contacts"],
-        "description": "Creates a new contact. If a contact with the same phone already exists, returns the existing contact with `200` instead of creating a duplicate.",
+        "description": "Creates a new contact. At least one of `full_name`, `phone`, or `email` is required. If a contact with the same phone already exists, returns `200` with `{ \"data\": { \"id\": \"uuid\", \"deduplicated\": true } }` instead of creating a duplicate. Requires scope: `contacts:write`.",
         "parameters": [{ "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" }, "description": "Unique key to prevent duplicate creation" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactCreate" } } } },
         "responses": {
-          "201": { "description": "Contact created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SingleResponse" } } } },
-          "200": { "description": "Deduplicated (existing contact found by phone)" },
+          "201": { "description": "Contact created", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Contact" } } } } } },
+          "200": { "description": "Deduplicated — existing contact found by phone", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" }, "deduplicated": { "type": "boolean", "const": true } } } } } } } },
           "400": { "$ref": "#/components/responses/ValidationError" },
           "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
@@ -51,9 +54,10 @@
         "summary": "Get contact",
         "operationId": "getContact",
         "tags": ["Contacts"],
+        "description": "Requires scope: `contacts:read`.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "responses": {
-          "200": { "description": "Contact detail", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SingleResponse" } } } },
+          "200": { "description": "Contact detail", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Contact" } } } } } },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
       },
@@ -61,11 +65,11 @@
         "summary": "Update contact",
         "operationId": "updateContact",
         "tags": ["Contacts"],
-        "description": "Updates a contact. Supports optimistic locking via `version` field.",
+        "description": "Supports optimistic locking via `version` field. Requires scope: `contacts:write`.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContactUpdate" } } } },
         "responses": {
-          "200": { "description": "Contact updated" },
+          "200": { "description": "Contact updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Contact" } } } } } },
           "400": { "$ref": "#/components/responses/ValidationError" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" }
@@ -75,11 +79,10 @@
         "summary": "Delete contact (soft)",
         "operationId": "deleteContact",
         "tags": ["Contacts"],
-        "description": "Soft-deletes a contact by setting `deleted_at`. Cascades: open leads are set to `lost`, scheduled appointments are `cancelled`. Triggers `contact.deleted` webhook event.",
+        "description": "Soft-deletes a contact by setting `deleted_at`. Cascades: open leads → `lost`, scheduled appointments → `cancelled`. Triggers `contact.deleted` webhook. Requires scope: `contacts:write`.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "responses": {
           "200": { "description": "Contact deleted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DeleteResponse" } } } },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
@@ -89,7 +92,7 @@
         "summary": "Batch create/upsert contacts",
         "operationId": "batchContacts",
         "tags": ["Contacts"],
-        "description": "Process up to 100 contact operations in a single request. Each operation can be `create` (skip if duplicate) or `upsert` (update if duplicate found). Deduplication is based on `match_on` field (`phone` or `email`).",
+        "description": "Process up to 100 contact operations. `create` skips if duplicate found; `upsert` updates the existing record. Dedup field is set via `match_on` (default: `phone`). Always returns HTTP 200 — check `summary.failed` for per-item errors. Requires scope: `contacts:write`.",
         "parameters": [{ "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }],
         "requestBody": {
           "required": true,
@@ -106,23 +109,21 @@
           }
         },
         "responses": {
-          "200": { "description": "Batch completed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchResponse" } } } },
+          "200": { "description": "Batch completed (check summary.failed for errors)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchResponse" } } } },
           "400": { "$ref": "#/components/responses/ValidationError" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
     },
     "/api/v1/contacts/{id}/export": {
       "post": {
-        "summary": "Start contact data export (KVKK)",
+        "summary": "Start contact data export (KVKK/GDPR)",
         "operationId": "exportContact",
         "tags": ["Contacts"],
-        "description": "Starts an async data export for KVKK/GDPR compliance. Returns a job ID — poll `GET /api/v1/export-jobs/{jobId}` for results. Export includes all contact data, leads, appointments, and conversations.",
+        "description": "Starts an async export. Poll `GET /api/v1/export-jobs/{jobId}` for results. Export includes contact, leads, appointments, and conversations with messages. Requires scope: `contacts:read`.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "responses": {
           "202": { "description": "Export job started", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExportJobResponse" } } } },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
           "404": { "$ref": "#/components/responses/NotFound" }
         }
       }
@@ -132,33 +133,10 @@
         "summary": "Get export job status",
         "operationId": "getExportJob",
         "tags": ["Contacts"],
-        "description": "Poll the status of an async export job. When `status` is `completed`, the `result` field contains the exported data. Jobs expire after a set period — expired jobs return `410 Gone`.",
+        "description": "Poll export job. When `status=completed`, `result` contains: `{ contact, leads[], appointments[], conversations[], exported_at }`. Expired jobs return `410 Gone`. Requires scope: `contacts:read`.",
         "parameters": [{ "name": "jobId", "in": "path", "required": true, "schema": { "type": "string" }, "description": "Export job ID (e.g., exp_abc123def456)" }],
         "responses": {
-          "200": {
-            "description": "Export job status",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "data": {
-                      "type": "object",
-                      "properties": {
-                        "id": { "type": "string" },
-                        "status": { "type": "string", "enum": ["processing", "completed", "failed"] },
-                        "result": { "type": "object", "nullable": true, "description": "Exported data (present when status=completed)" },
-                        "error": { "type": "string", "nullable": true, "description": "Error message (present when status=failed)" },
-                        "created_at": { "type": "string", "format": "date-time" },
-                        "completed_at": { "type": "string", "format": "date-time", "nullable": true },
-                        "expires_at": { "type": "string", "format": "date-time", "nullable": true }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
+          "200": { "description": "Export job status", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/ExportJob" } } } } } },
           "404": { "$ref": "#/components/responses/NotFound" },
           "410": { "description": "Export job expired", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
@@ -169,16 +147,18 @@
         "summary": "List leads",
         "operationId": "listLeads",
         "tags": ["Leads"],
+        "description": "Returns leads sorted by `created_at` descending (newest first). Requires scope: `leads:read`.",
         "parameters": [
-          { "name": "status", "in": "query", "schema": { "type": "string" }, "description": "Filter by lead status" },
-          { "name": "source_channel", "in": "query", "schema": { "type": "string" }, "description": "Filter by source channel" },
-          { "name": "contact_id", "in": "query", "schema": { "type": "string", "format": "uuid" }, "description": "Filter by contact" },
-          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["new", "in_progress", "nurturing", "qualified", "handed_off", "converted", "lost"] } },
+          { "name": "source_channel", "in": "query", "schema": { "type": "string" } },
+          { "name": "contact_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" }, "description": "Pagination cursor (`created_at` timestamp)" },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 100 } }
         ],
         "responses": {
-          "200": { "description": "Lead list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaginatedList" } } } },
+          "200": { "description": "Lead list", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Lead" } }, "pagination": { "$ref": "#/components/schemas/Pagination" } } } } } },
           "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
       },
@@ -186,12 +166,13 @@
         "summary": "Create lead",
         "operationId": "createLead",
         "tags": ["Leads"],
+        "description": "The `contact_id` must belong to your organization. Requires scope: `leads:write`.",
         "parameters": [{ "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LeadCreate" } } } },
         "responses": {
-          "201": { "description": "Lead created" },
+          "201": { "description": "Lead created", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Lead" } } } } } },
           "400": { "$ref": "#/components/responses/ValidationError" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "Contact not found in this organization", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
@@ -201,18 +182,22 @@
         "summary": "Get lead",
         "operationId": "getLead",
         "tags": ["Leads"],
+        "description": "Requires scope: `leads:read`.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Lead detail" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "responses": {
+          "200": { "description": "Lead detail", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Lead" } } } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       },
       "patch": {
         "summary": "Update lead",
         "operationId": "updateLead",
         "tags": ["Leads"],
-        "description": "Updates a lead. Supports optimistic locking via `version` field. If the organization has `enforce_state_machine` enabled, status transitions are validated — invalid transitions return `400` with allowed transitions.",
+        "description": "Supports optimistic locking via `version`. If `enforce_state_machine` is enabled, invalid status transitions return `400` with allowed targets. Requires scope: `leads:write`.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LeadUpdate" } } } },
         "responses": {
-          "200": { "description": "Lead updated" },
+          "200": { "description": "Lead updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Lead" } } } } } },
           "400": { "$ref": "#/components/responses/InvalidTransition" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" }
@@ -224,17 +209,19 @@
         "summary": "List appointments",
         "operationId": "listAppointments",
         "tags": ["Appointments"],
+        "description": "Returns appointments sorted by `scheduled_at` ascending (earliest first). Requires scope: `appointments:read`.",
         "parameters": [
           { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["scheduled", "confirmed", "attended", "no_show", "cancelled", "rescheduled"] } },
           { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "Start of date range (inclusive)" },
           { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "End of date range (inclusive)" },
           { "name": "contact_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
-          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" }, "description": "Pagination cursor (`scheduled_at` timestamp)" },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 100 } }
         ],
         "responses": {
-          "200": { "description": "Appointment list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaginatedList" } } } },
+          "200": { "description": "Appointment list", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Appointment" } }, "pagination": { "$ref": "#/components/schemas/Pagination" } } } } } },
           "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
       },
@@ -242,12 +229,13 @@
         "summary": "Create appointment",
         "operationId": "createAppointment",
         "tags": ["Appointments"],
+        "description": "Creates with `status: scheduled` regardless of any status value in the body. `contact_id` and `lead_id` (if provided) must belong to your organization. Requires scope: `appointments:write`.",
         "parameters": [{ "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AppointmentCreate" } } } },
         "responses": {
-          "201": { "description": "Appointment created" },
+          "201": { "description": "Appointment created", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Appointment" } } } } } },
           "400": { "$ref": "#/components/responses/ValidationError" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "description": "Contact or lead not found in this organization", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
@@ -257,18 +245,22 @@
         "summary": "Get appointment",
         "operationId": "getAppointment",
         "tags": ["Appointments"],
+        "description": "Requires scope: `appointments:read`.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Appointment detail" }, "404": { "$ref": "#/components/responses/NotFound" } }
+        "responses": {
+          "200": { "description": "Appointment detail", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Appointment" } } } } } },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
       },
       "patch": {
         "summary": "Update appointment",
         "operationId": "updateAppointment",
         "tags": ["Appointments"],
-        "description": "Updates an appointment. Supports optimistic locking via `version` field. If the organization has `enforce_state_machine` enabled, status transitions are validated.",
+        "description": "Supports optimistic locking via `version`. If `enforce_state_machine` is enabled, invalid status transitions return `400`. Requires scope: `appointments:write`.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AppointmentUpdate" } } } },
         "responses": {
-          "200": { "description": "Appointment updated" },
+          "200": { "description": "Appointment updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Appointment" } } } } } },
           "400": { "$ref": "#/components/responses/InvalidTransition" },
           "404": { "$ref": "#/components/responses/NotFound" },
           "409": { "$ref": "#/components/responses/Conflict" }
@@ -280,7 +272,7 @@
         "summary": "Batch create/upsert appointments",
         "operationId": "batchAppointments",
         "tags": ["Appointments"],
-        "description": "Process up to 100 appointment operations in a single request. Each operation can be `create` or `upsert`. Deduplication for upsert is based on `external_id`.",
+        "description": "Process up to 100 operations. Dedup for upsert uses `external_id`. Always returns HTTP 200 — check `summary.failed` for per-item errors. Requires scope: `appointments:write`.",
         "parameters": [{ "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }],
         "requestBody": {
           "required": true,
@@ -299,7 +291,6 @@
         "responses": {
           "200": { "description": "Batch completed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BatchResponse" } } } },
           "400": { "$ref": "#/components/responses/ValidationError" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
@@ -309,15 +300,16 @@
         "summary": "List conversations",
         "operationId": "listConversations",
         "tags": ["Conversations"],
+        "description": "Returns conversations sorted by `updated_at` descending (most recent activity first). Requires scope: `conversations:read`.",
         "parameters": [
           { "name": "channel", "in": "query", "schema": { "type": "string", "enum": ["voice", "whatsapp", "instagram", "web"] } },
           { "name": "status", "in": "query", "schema": { "type": "string" } },
           { "name": "contact_id", "in": "query", "schema": { "type": "string", "format": "uuid" } },
-          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" }, "description": "Pagination cursor (`updated_at` timestamp)" },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 100 } }
         ],
         "responses": {
-          "200": { "description": "Conversation list" },
+          "200": { "description": "Conversation list", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Conversation" } }, "pagination": { "$ref": "#/components/schemas/Pagination" } } } } } },
           "401": { "$ref": "#/components/responses/Unauthorized" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
@@ -328,13 +320,14 @@
         "summary": "List messages in conversation",
         "operationId": "listMessages",
         "tags": ["Conversations"],
+        "description": "Returns messages sorted by `created_at` ascending (oldest first). Requires scope: `messages:read`.",
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
-          { "name": "cursor", "in": "query", "schema": { "type": "string" } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" }, "description": "Pagination cursor (`created_at` timestamp)" },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 100 } }
         ],
         "responses": {
-          "200": { "description": "Message list" },
+          "200": { "description": "Message list", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Message" } }, "pagination": { "$ref": "#/components/schemas/Pagination" } } } } } },
           "401": { "$ref": "#/components/responses/Unauthorized" }
         }
       }
@@ -344,22 +337,25 @@
         "summary": "List knowledge items",
         "operationId": "listKnowledge",
         "tags": ["Knowledge"],
+        "description": "Returns all knowledge items (including deactivated ones). Sorted by `created_at` descending. Requires scope: `knowledge:read`.",
         "parameters": [
           { "name": "item_type", "in": "query", "schema": { "type": "string" } },
           { "name": "search", "in": "query", "schema": { "type": "string" } },
           { "name": "cursor", "in": "query", "schema": { "type": "string" } },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 100 } }
         ],
-        "responses": { "200": { "description": "Knowledge item list" } }
+        "responses": {
+          "200": { "description": "Knowledge item list", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/KnowledgeItem" } }, "pagination": { "$ref": "#/components/schemas/Pagination" } } } } } }
+        }
       },
       "post": {
         "summary": "Create knowledge item",
         "operationId": "createKnowledge",
         "tags": ["Knowledge"],
-        "description": "Creates a knowledge item. An embedding vector is automatically generated from the title and content using OpenAI text-embedding-3-small.",
+        "description": "An embedding vector is automatically generated from title+content using OpenAI text-embedding-3-small. Requires scope: `knowledge:write`.",
         "parameters": [{ "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/KnowledgeCreate" } } } },
-        "responses": { "201": { "description": "Knowledge item created (embedding auto-generated)" } }
+        "responses": { "201": { "description": "Knowledge item created (embedding auto-generated)", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/KnowledgeItem" } } } } } } }
       }
     },
     "/api/v1/knowledge/{id}": {
@@ -367,23 +363,24 @@
         "summary": "Get knowledge item",
         "operationId": "getKnowledge",
         "tags": ["Knowledge"],
+        "description": "Requires scope: `knowledge:read`.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
-        "responses": { "200": { "description": "Knowledge item detail" } }
+        "responses": { "200": { "description": "Knowledge item detail", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/KnowledgeItem" } } } } } } }
       },
       "patch": {
         "summary": "Update knowledge item",
         "operationId": "updateKnowledge",
         "tags": ["Knowledge"],
-        "description": "Updates a knowledge item. If `title` or `content` changes, the embedding is automatically re-generated.",
+        "description": "If `title` or `content` changes, the embedding is automatically re-generated. Requires scope: `knowledge:write`.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/KnowledgeUpdate" } } } },
-        "responses": { "200": { "description": "Knowledge item updated (re-embedded if content changed)" } }
+        "responses": { "200": { "description": "Knowledge item updated" } }
       },
       "delete": {
         "summary": "Deactivate knowledge item",
         "operationId": "deleteKnowledge",
         "tags": ["Knowledge"],
-        "description": "Soft-deletes a knowledge item by setting `is_active = false`.",
+        "description": "Sets `is_active = false`. Requires scope: `knowledge:write`.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "responses": { "200": { "description": "Knowledge item deactivated" } }
       }
@@ -393,45 +390,44 @@
         "summary": "Poll events",
         "operationId": "pollEvents",
         "tags": ["Events"],
-        "description": "Returns events since a given timestamp. Use the `cursor` from the response as the next `since` value. Ideal for on-premise systems without webhook support. Events are retained for 30 days.",
+        "description": "Returns events since a given timestamp. Use `cursor` from the response as the next `since` value. Events are retained for 30 days. **Note:** This endpoint returns a different envelope than other list endpoints. Requires scope: `events:read`.",
         "parameters": [
           { "name": "since", "in": "query", "required": true, "schema": { "type": "string", "format": "date-time" }, "description": "ISO 8601 timestamp. Only events after this time are returned." },
           { "name": "types", "in": "query", "schema": { "type": "string" }, "description": "Comma-separated event types (e.g., contact.created,lead.updated)" },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 100 } }
         ],
         "responses": {
-          "200": {
-            "description": "Event list",
-            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EventList" } } }
-          }
+          "200": { "description": "Event list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EventList" } } } }
         }
       }
     },
     "/api/v1/inbound/contacts": {
       "post": {
-        "summary": "Push contact from partner (external_id dedup)",
+        "summary": "Push contact from partner",
         "operationId": "pushContact",
         "tags": ["Inbound"],
-        "description": "Push a contact from an external system. Deduplication is based on `external_id` + `partner_name`. If a matching contact exists, it is updated; otherwise a new contact is created.",
+        "description": "Dedup via `external_id` + `partner_name` stored in `channel_identifiers` JSONB: `{ \"partner_name\": \"external_id\" }`. Returns `action: 'created'` or `action: 'updated'` in response. Requires scope: `inbound:contacts` (not `contacts:write`).",
         "parameters": [{ "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InboundContact" } } } },
         "responses": {
-          "201": { "description": "Contact created" },
-          "200": { "description": "Existing contact updated" }
+          "201": { "description": "Contact created", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" }, "action": { "type": "string", "enum": ["created"] } } } } } } } },
+          "200": { "description": "Existing contact updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" }, "action": { "type": "string", "enum": ["updated"] } } } } } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" }
         }
       }
     },
     "/api/v1/inbound/appointments": {
       "post": {
-        "summary": "Push appointment from partner (external_id dedup)",
+        "summary": "Push appointment from partner",
         "operationId": "pushAppointment",
         "tags": ["Inbound"],
-        "description": "Push an appointment from an external system. Deduplication is based on `external_id`. If a matching appointment exists, it is updated; otherwise a new appointment is created.",
+        "description": "Dedup via `external_id`. Unlike `POST /appointments`, this endpoint accepts `status` for new records. Returns `action: 'created'` or `action: 'updated'`. Requires scope: `inbound:appointments` (not `appointments:write`).",
         "parameters": [{ "name": "Idempotency-Key", "in": "header", "schema": { "type": "string" } }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InboundAppointment" } } } },
         "responses": {
-          "201": { "description": "Appointment created" },
-          "200": { "description": "Existing appointment updated" }
+          "201": { "description": "Appointment created", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" }, "action": { "type": "string", "enum": ["created"] } } } } } } } },
+          "200": { "description": "Existing appointment updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" }, "action": { "type": "string", "enum": ["updated"] } } } } } } } },
+          "400": { "$ref": "#/components/responses/ValidationError" }
         }
       }
     }
@@ -442,32 +438,142 @@
       "ApiKeyAuth": { "type": "apiKey", "in": "header", "name": "x-api-key", "description": "API key as custom header: `x-api-key: sk_live_xxx`" }
     },
     "schemas": {
-      "ContactCreate": {
+      "Contact": {
+        "type": "object",
+        "description": "Contact object returned in responses",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "full_name": { "type": "string", "nullable": true },
+          "phone": { "type": "string", "nullable": true, "description": "E.164 format" },
+          "email": { "type": "string", "nullable": true },
+          "status": { "type": "string" },
+          "source_channel": { "type": "string" },
+          "preferred_language": { "type": "string", "nullable": true },
+          "metadata": { "type": "object", "nullable": true },
+          "channel_identifiers": { "type": "object", "nullable": true, "description": "External system IDs, e.g. { \"novasoft\": \"ext_123\" }. Present in detail responses." },
+          "version": { "type": "integer", "description": "Record version for optimistic locking. Present in detail and update responses." },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Lead": {
+        "type": "object",
+        "description": "Lead object returned in responses",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "contact_id": { "type": "string", "format": "uuid" },
+          "status": { "type": "string", "enum": ["new", "in_progress", "nurturing", "qualified", "handed_off", "converted", "lost"] },
+          "qualification_score": { "type": "integer", "minimum": 0, "maximum": 100 },
+          "source_channel": { "type": "string" },
+          "collected_data": { "type": "object", "nullable": true },
+          "notes": { "type": "string", "nullable": true },
+          "assigned_to": { "type": "string", "nullable": true },
+          "version": { "type": "integer", "description": "Record version for optimistic locking" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Appointment": {
+        "type": "object",
+        "description": "Appointment object returned in responses",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "contact_id": { "type": "string", "format": "uuid", "nullable": true },
+          "lead_id": { "type": "string", "format": "uuid", "nullable": true },
+          "scheduled_at": { "type": "string", "format": "date-time" },
+          "duration_minutes": { "type": "integer" },
+          "status": { "type": "string", "enum": ["scheduled", "confirmed", "attended", "no_show", "cancelled", "rescheduled"] },
+          "title": { "type": "string", "nullable": true },
+          "appointment_type": { "type": "string", "enum": ["consultation", "operation", "follow_up", "other"] },
+          "source": { "type": "string" },
+          "notes": { "type": "string", "nullable": true },
+          "external_id": { "type": "string", "nullable": true },
+          "metadata": { "type": "object", "nullable": true, "description": "Present in detail responses" },
+          "version": { "type": "integer", "description": "Record version for optimistic locking" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Conversation": {
         "type": "object",
         "properties": {
-          "full_name": { "type": "string", "description": "Contact's full name" },
-          "phone": { "type": "string", "description": "Phone number — E.164 or local format (auto-normalized)" },
+          "id": { "type": "string", "format": "uuid" },
+          "contact_id": { "type": "string", "format": "uuid" },
+          "channel": { "type": "string", "enum": ["voice", "whatsapp", "instagram", "web"] },
+          "status": { "type": "string" },
+          "ai_summary": { "type": "string", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "conversation_id": { "type": "string", "format": "uuid" },
+          "role": { "type": "string", "description": "Message sender role (user, assistant, system)" },
+          "content": { "type": "string" },
+          "metadata": { "type": "object", "nullable": true },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "KnowledgeItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "item_type": { "type": "string" },
+          "title": { "type": "string" },
+          "content": { "type": "string" },
+          "metadata": { "type": "object", "nullable": true },
+          "is_active": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ExportJob": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "type": "string", "enum": ["processing", "completed", "failed"] },
+          "result": {
+            "type": "object",
+            "nullable": true,
+            "description": "Present when status=completed",
+            "properties": {
+              "contact": { "type": "object", "description": "Full contact record" },
+              "leads": { "type": "array", "items": { "type": "object" } },
+              "appointments": { "type": "array", "items": { "type": "object" } },
+              "conversations": { "type": "array", "items": { "type": "object" }, "description": "Includes nested messages" },
+              "exported_at": { "type": "string", "format": "date-time" }
+            }
+          },
+          "error": { "type": "string", "nullable": true, "description": "Present when status=failed" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "completed_at": { "type": "string", "format": "date-time", "nullable": true },
+          "expires_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
+      "ContactCreate": {
+        "type": "object",
+        "description": "At least one of `full_name`, `phone`, or `email` is required.",
+        "properties": {
+          "full_name": { "type": "string" },
+          "phone": { "type": "string", "description": "E.164 or local format (auto-normalized). Returns `400 invalid_phone` if unparseable." },
           "email": { "type": "string", "format": "email" },
-          "source_channel": { "type": "string", "default": "api", "description": "Origin channel (api, whatsapp, voice, web, etc.)" },
-          "metadata": { "type": "object", "description": "Arbitrary key-value data" }
+          "source_channel": { "type": "string", "default": "api" },
+          "metadata": { "type": "object" }
         }
       },
       "ContactUpdate": {
         "type": "object",
+        "description": "At least one field is required.",
         "properties": {
           "full_name": { "type": "string" },
-          "phone": { "type": "string" },
+          "phone": { "type": "string", "description": "Returns `400 invalid_phone` if unparseable" },
           "email": { "type": "string" },
           "status": { "type": "string" },
           "metadata": { "type": "object" },
           "version": { "type": "integer", "description": "Current version for optimistic locking. If provided and does not match, returns 409 Conflict." }
-        }
-      },
-      "ContactList": {
-        "type": "object",
-        "properties": {
-          "data": { "type": "array", "items": { "type": "object" } },
-          "pagination": { "$ref": "#/components/schemas/Pagination" }
         }
       },
       "ContactBatchRequest": {
@@ -482,7 +588,7 @@
               "required": ["method", "data"],
               "properties": {
                 "method": { "type": "string", "enum": ["create", "upsert"], "description": "`create` — skip if duplicate; `upsert` — update if duplicate found" },
-                "match_on": { "type": "string", "enum": ["phone", "email"], "default": "phone", "description": "Field used for deduplication" },
+                "match_on": { "type": "string", "enum": ["phone", "email"], "default": "phone" },
                 "data": { "$ref": "#/components/schemas/ContactCreate" }
               }
             }
@@ -500,9 +606,14 @@
               "type": "object",
               "required": ["method", "data"],
               "properties": {
-                "method": { "type": "string", "enum": ["create", "upsert"], "description": "`create` — skip if duplicate; `upsert` — update if duplicate found" },
-                "match_on": { "type": "string", "enum": ["external_id"], "default": "external_id", "description": "Field used for deduplication (only external_id supported)" },
-                "data": { "$ref": "#/components/schemas/AppointmentCreate" }
+                "method": { "type": "string", "enum": ["create", "upsert"] },
+                "match_on": { "type": "string", "enum": ["external_id"], "default": "external_id" },
+                "data": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/AppointmentCreate" },
+                    { "type": "object", "properties": { "status": { "type": "string", "enum": ["scheduled", "confirmed", "attended", "no_show", "cancelled", "rescheduled"], "description": "Status for new/updated appointments (batch only)" } } }
+                  ]
+                }
               }
             }
           }
@@ -520,9 +631,9 @@
                   "type": "object",
                   "properties": {
                     "index": { "type": "integer", "description": "Position in the operations array" },
-                    "id": { "type": "string", "format": "uuid", "description": "Created or matched record ID" },
+                    "id": { "type": "string", "format": "uuid", "description": "Record ID (present when action is created/updated/deduplicated)" },
                     "action": { "type": "string", "enum": ["created", "updated", "deduplicated", "failed"] },
-                    "error": { "type": "string", "description": "Error message if action=failed" }
+                    "error": { "type": "string", "description": "Error message (present only when action=failed)" }
                   }
                 }
               },
@@ -547,8 +658,8 @@
             "type": "object",
             "properties": {
               "job_id": { "type": "string", "description": "Export job ID (e.g., exp_abc123def456)" },
-              "status": { "type": "string", "enum": ["processing", "completed", "failed"] },
-              "poll_url": { "type": "string", "description": "URL to poll for job status" }
+              "status": { "type": "string", "enum": ["processing"] },
+              "poll_url": { "type": "string", "description": "Relative URL to poll for results" }
             }
           }
         }
@@ -569,9 +680,9 @@
         "type": "object",
         "required": ["contact_id"],
         "properties": {
-          "contact_id": { "type": "string", "format": "uuid" },
+          "contact_id": { "type": "string", "format": "uuid", "description": "Must belong to your organization" },
           "source_channel": { "type": "string", "default": "api" },
-          "status": { "type": "string", "default": "new" },
+          "status": { "type": "string", "enum": ["new", "in_progress", "nurturing", "qualified", "handed_off", "converted", "lost"], "default": "new" },
           "qualification_score": { "type": "integer", "minimum": 0, "maximum": 100 },
           "collected_data": { "type": "object", "description": "Structured intake data (JSONB)" },
           "notes": { "type": "string" }
@@ -579,12 +690,13 @@
       },
       "LeadUpdate": {
         "type": "object",
+        "description": "At least one field is required.",
         "properties": {
-          "status": { "type": "string", "description": "New status. Subject to state machine validation if enabled." },
+          "status": { "type": "string", "enum": ["new", "in_progress", "nurturing", "qualified", "handed_off", "converted", "lost"], "description": "Subject to state machine validation if enabled" },
           "qualification_score": { "type": "integer", "minimum": 0, "maximum": 100 },
-          "collected_data": { "type": "object" },
+          "collected_data": { "type": "object", "description": "Must be a JSON object (not array)" },
           "notes": { "type": "string" },
-          "version": { "type": "integer", "description": "Current version for optimistic locking. If provided and does not match, returns 409 Conflict." }
+          "version": { "type": "integer", "description": "Current version for optimistic locking" }
         }
       },
       "AppointmentCreate": {
@@ -592,9 +704,9 @@
         "required": ["scheduled_at"],
         "properties": {
           "scheduled_at": { "type": "string", "format": "date-time" },
-          "contact_id": { "type": "string", "format": "uuid" },
-          "lead_id": { "type": "string", "format": "uuid" },
-          "external_id": { "type": "string", "description": "Unique ID in external system (used for upsert dedup)" },
+          "contact_id": { "type": "string", "format": "uuid", "description": "Must belong to your organization" },
+          "lead_id": { "type": "string", "format": "uuid", "description": "Must belong to your organization" },
+          "external_id": { "type": "string", "description": "External system ID (used for batch upsert dedup). Note: ignored in regular POST, only used in batch and inbound." },
           "duration_minutes": { "type": "integer", "default": 60 },
           "title": { "type": "string" },
           "appointment_type": { "type": "string", "enum": ["consultation", "operation", "follow_up", "other"] },
@@ -604,6 +716,7 @@
       },
       "AppointmentUpdate": {
         "type": "object",
+        "description": "At least one field is required.",
         "properties": {
           "status": { "type": "string", "enum": ["scheduled", "confirmed", "attended", "no_show", "cancelled", "rescheduled"] },
           "scheduled_at": { "type": "string", "format": "date-time" },
@@ -611,7 +724,7 @@
           "appointment_type": { "type": "string", "enum": ["consultation", "operation", "follow_up", "other"] },
           "duration_minutes": { "type": "integer" },
           "notes": { "type": "string" },
-          "version": { "type": "integer", "description": "Current version for optimistic locking. If provided and does not match, returns 409 Conflict." }
+          "version": { "type": "integer", "description": "Current version for optimistic locking" }
         }
       },
       "KnowledgeCreate": {
@@ -639,7 +752,7 @@
         "required": ["external_id", "partner_name"],
         "properties": {
           "external_id": { "type": "string", "description": "Unique ID in partner system" },
-          "partner_name": { "type": "string", "description": "Partner identifier (e.g., 'novasoft')" },
+          "partner_name": { "type": "string", "description": "Partner identifier. Must match `^[a-z0-9_-]{1,64}$` (lowercase alphanumeric, hyphens, underscores).", "pattern": "^[a-z0-9_-]{1,64}$" },
           "full_name": { "type": "string" },
           "phone": { "type": "string" },
           "email": { "type": "string" },
@@ -657,13 +770,14 @@
           "duration_minutes": { "type": "integer" },
           "title": { "type": "string" },
           "appointment_type": { "type": "string" },
-          "status": { "type": "string" },
+          "status": { "type": "string", "enum": ["scheduled", "confirmed", "attended", "no_show", "cancelled", "rescheduled"], "description": "Unlike regular POST /appointments, inbound accepts status" },
           "notes": { "type": "string" },
           "source": { "type": "string" }
         }
       },
       "EventList": {
         "type": "object",
+        "description": "Note: Events use a different response envelope than other endpoints (`events` array instead of `data` + `pagination`).",
         "properties": {
           "events": {
             "type": "array",
@@ -678,7 +792,7 @@
               }
             }
           },
-          "cursor": { "type": "string", "description": "Use as next 'since' parameter" },
+          "cursor": { "type": "string", "description": "Use as next `since` parameter" },
           "has_more": { "type": "boolean" }
         }
       },
@@ -688,20 +802,7 @@
           "total": { "type": "integer" },
           "limit": { "type": "integer" },
           "has_more": { "type": "boolean" },
-          "next_cursor": { "type": "string", "nullable": true }
-        }
-      },
-      "PaginatedList": {
-        "type": "object",
-        "properties": {
-          "data": { "type": "array", "items": { "type": "object" } },
-          "pagination": { "$ref": "#/components/schemas/Pagination" }
-        }
-      },
-      "SingleResponse": {
-        "type": "object",
-        "properties": {
-          "data": { "type": "object" }
+          "next_cursor": { "type": "string", "nullable": true, "description": "Use as `cursor` parameter for next page. Null when no more results." }
         }
       },
       "Error": {
@@ -711,44 +812,38 @@
             "type": "object",
             "properties": {
               "code": { "type": "string" },
-              "message": { "type": "string" }
+              "message": { "type": "string" },
+              "allowed": { "type": "array", "items": { "type": "string" }, "description": "Valid target statuses (only present for invalid_transition errors)" }
             }
           }
         }
       }
     },
     "responses": {
-      "Unauthorized": { "description": "Missing or invalid API key", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Unauthorized": { "description": "Missing or invalid API key (`missing_api_key` or `invalid_api_key`)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Forbidden": {
+        "description": "Access denied. Possible codes: `insufficient_scope`, `ip_not_allowed`, `org_inactive`, `feature_not_available`",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "error": { "code": "insufficient_scope", "message": "API key lacks required scope: contacts:write" } } } }
+      },
       "NotFound": { "description": "Resource not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "ValidationError": {
-        "description": "Validation error",
+        "description": "Validation error. Possible codes: `validation_error`, `invalid_phone`, `invalid_json`",
         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "error": { "code": "validation_error", "message": "At least one field required" } } } }
       },
       "Conflict": {
-        "description": "Version conflict (optimistic locking)",
+        "description": "Version conflict (optimistic locking). Re-fetch the record and retry with the current version.",
         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" }, "example": { "error": { "code": "conflict", "message": "Version conflict — record has been modified. Re-fetch and retry." } } } }
       },
       "InvalidTransition": {
-        "description": "Invalid status transition (state machine)",
+        "description": "Invalid status transition (state machine). The `allowed` array lists valid target statuses.",
         "content": {
           "application/json": {
-            "schema": {
-              "type": "object",
-              "properties": {
-                "error": {
-                  "type": "object",
-                  "properties": {
-                    "code": { "type": "string", "example": "invalid_transition" },
-                    "message": { "type": "string", "example": "Cannot transition from 'new' to 'converted'" },
-                    "allowed": { "type": "array", "items": { "type": "string" }, "description": "List of valid target statuses from current state" }
-                  }
-                }
-              }
-            }
+            "schema": { "$ref": "#/components/schemas/Error" },
+            "example": { "error": { "code": "invalid_transition", "message": "Cannot transition from 'new' to 'converted'", "allowed": ["in_progress", "lost"] } }
           }
         }
       },
-      "RateLimited": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+      "RateLimited": { "description": "Rate limit exceeded (`rate_limited`) or monthly quota exhausted (`monthly_quota_exceeded`)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
     }
   },
   "tags": [
@@ -758,6 +853,6 @@
     { "name": "Conversations", "description": "Chat conversations and messages (read-only)" },
     { "name": "Knowledge", "description": "Knowledge base management with auto-embedding" },
     { "name": "Events", "description": "Event polling for on-premise integrations (30-day retention)" },
-    { "name": "Inbound", "description": "Partner push endpoints with external_id deduplication" }
+    { "name": "Inbound", "description": "Partner push endpoints with external_id deduplication. Requires dedicated `inbound:*` scopes." }
   ]
 }
