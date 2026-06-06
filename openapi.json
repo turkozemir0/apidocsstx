@@ -432,6 +432,28 @@
       }
     }
   },
+  "webhooks": {
+    "entityEvent": {
+      "post": {
+        "summary": "Webhook delivery (contact.*, lead.*, appointment.*)",
+        "description": "stoaix POSTs to your registered URL when an entity changes. **The request body is the bare entity object — there is no envelope.** The event type is in the `X-Stoaix-Event` header.\n\n`*.created` events include the full record; `*.updated`, `*.status_changed`, and `*.deleted` events may include **only identifiers** — fetch the full record via `GET /api/v1/{resource}/{id}` when you need complete data.\n\n**Headers:** `X-Stoaix-Event`, `X-Stoaix-Delivery`, `X-Stoaix-Timestamp`, `X-Stoaix-Signature` (format `t=<timestamp>,v1=<hmac>`, signed over `${t}.${rawBody}` with HMAC-SHA256 and your webhook secret).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "description": "Bare entity payload. Shape varies by event type." },
+              "examples": {
+                "contact.created": { "summary": "contact.created (full record)", "value": { "id": "uuid", "full_name": "Ahmet Yilmaz", "phone": "+905551234567", "email": "ahmet@example.com", "status": "new", "source_channel": "api" } },
+                "appointment.status_changed": { "summary": "appointment.status_changed (identifiers only)", "value": { "id": "uuid", "external_id": "APT-789", "previous_status": "scheduled", "status": "confirmed" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Acknowledge with any 2xx within 10s. Non-2xx or timeout triggers retry (up to 8 attempts, exponential backoff). Return `410 Gone` to dead-letter the delivery immediately." }
+        }
+      }
+    }
+  },
   "components": {
     "securitySchemes": {
       "BearerAuth": { "type": "http", "scheme": "bearer", "description": "API key as Bearer token: `Authorization: Bearer sk_live_xxx`" },
@@ -450,7 +472,7 @@
           "source_channel": { "type": "string" },
           "preferred_language": { "type": "string", "nullable": true },
           "metadata": { "type": "object", "nullable": true },
-          "channel_identifiers": { "type": "object", "nullable": true, "description": "External system IDs, e.g. { \"novasoft\": \"ext_123\" }. Present in detail responses." },
+          "channel_identifiers": { "type": "object", "nullable": true, "description": "External system IDs, e.g. { \"your_system\": \"ext_123\" }. Present in detail responses." },
           "version": { "type": "integer", "description": "Record version for optimistic locking. Present in detail and update responses." },
           "created_at": { "type": "string", "format": "date-time" },
           "updated_at": { "type": "string", "format": "date-time" }
